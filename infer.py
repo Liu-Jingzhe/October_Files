@@ -7,13 +7,7 @@ import json
 from tqdm import tqdm
 import shortuuid
 import os.path as osp
-from graphllm.constants import GRAPH_TOKEN_INDEX, DEFAULT_GRAPH_TOKEN, DEFAULT_GRAPH_PAD_ID, DEFAULT_GRAPH_START_TOKEN, DEFAULT_GRAPH_END_TOKEN
-from graphllm.converstation import conv_templates, SeparatorStyle
-from graphllm.builder import load_pretrained_model
-from graphllm.utils import disable_torch_init, tokenizer_graph_token, get_model_name_from_path
-from graphllm.utils import classification_prompt, link_prediction_prompt
 from torch_geometric.utils import k_hop_subgraph, degree, remove_self_loops, add_self_loops
-from graphllm.llaga_gate_arch import GraphGate
 from torch_geometric.nn import MessagePassing
 import math
 import pandas as pd
@@ -337,7 +331,7 @@ def run(args):
     test_loader = DataLoader(test_dataset,batch_size=1)
     model_dict = {'Expert':[],'Gate':[],'avg_emb':[],'Name':[]}
     #dataset_list = ['bookchild','bookhis','cora','citeseer','dblp','products','pubmed','sportsfit','wikics']
-    dataset_list = ['cora','citeseer','dblp','amazonratings','bookchild','bookhis','products','pubmed','sportsfit','wikics']
+    dataset_list = ['cora','citeseer','dblp','bookchild','bookhis','products','pubmed','sportsfit','wikics']
     if args.dataset in dataset_list:
         dataset_list.remove(args.dataset)
     for dataname in dataset_list:
@@ -345,14 +339,14 @@ def run(args):
         gate = Att_ProjwithGate().to(device)
         
 
-        att_proj_weights = torch.load('./new_sb_model/'+dataname+'_'+args.task+'_contrast_att_proj.pt', map_location='cpu')
+        att_proj_weights = torch.load('./saved_model/'+dataname+'_'+args.task+'_att_proj.pt', map_location='cpu')
         expert.att_proj.load_state_dict(att_proj_weights)
         
 
-        fwd_proj_weights = torch.load('./new_sb_model/'+dataname+'_'+args.task+'_contrast_fwd_proj.pt', map_location='cpu')
+        fwd_proj_weights = torch.load('./saved_model/'+dataname+'_'+args.task+'_fwd_proj.pt', map_location='cpu')
         expert.fwd_proj.load_state_dict(fwd_proj_weights)
 
-        gate_weights = torch.load('./new_sb_model/'+dataname+'_'+args.task+'_gate.pt', map_location='cpu')
+        gate_weights = torch.load('./saved_model/'+dataname+'_'+args.task+'_gate.pt', map_location='cpu')
         gate.gate.load_state_dict(gate_weights)
         gate.att_proj.load_state_dict(att_proj_weights)
         gate.fwd_proj.load_state_dict(fwd_proj_weights)
@@ -366,7 +360,7 @@ def run(args):
         # avg_emb = torch.mean(pretrained_embs,dim=0)
 
 
-        avg_emb = torch.load('./new_sb_model/'+dataname+'_'+args.task+'_contrast_avg_emb.pt', map_location='cpu')
+        avg_emb = torch.load('./saved_model/'+dataname+'_'+args.task+'_avg_emb.pt', map_location='cpu')
         avg_emb = avg_emb.to(device)
         model_dict['avg_emb'].append(avg_emb)
         model_dict['Name'].append(dataname)
