@@ -7,13 +7,7 @@ import json
 from tqdm import tqdm
 import shortuuid
 import os.path as osp
-from graphllm.constants import GRAPH_TOKEN_INDEX, DEFAULT_GRAPH_TOKEN, DEFAULT_GRAPH_PAD_ID, DEFAULT_GRAPH_START_TOKEN, DEFAULT_GRAPH_END_TOKEN
-from graphllm.converstation import conv_templates, SeparatorStyle
-from graphllm.builder import load_pretrained_model
-from graphllm.utils import disable_torch_init, tokenizer_graph_token, get_model_name_from_path
-from graphllm.utils import classification_prompt, link_prediction_prompt
 from torch_geometric.utils import k_hop_subgraph, degree, remove_self_loops, add_self_loops
-from graphllm.llaga_gate_arch import GraphGate
 from torch_geometric.nn import MessagePassing
 import math
 import pandas as pd
@@ -85,7 +79,7 @@ class Att_Proj(nn.Module):
         graph_emb = graph_emb / graph_emb.norm(dim=1, keepdim=True)
         label_emb = label_emb / label_emb.norm(dim=1, keepdim=True)
         logits = graph_emb @ label_emb.t()
-        return logits
+        return graph_emb, logits
         
 
 
@@ -242,7 +236,7 @@ def train(model,loader,optimizer,device, args):
             continue
         classemb = batch[1].to(device)
         labels = batch[2].to(device)
-        logits = model(data,classemb)
+        gb, logits = model(data,classemb)
         targets = torch.nn.functional.one_hot(labels,num_classes=len(classemb[0])).to(torch.float32).to(device)
         loss = loss_fct(logits, targets)
         loss_accum += loss.item()
@@ -252,29 +246,44 @@ def train(model,loader,optimizer,device, args):
         #     exit(0)
     train_loss = loss_accum/(step+1)
     print('Train Loss', train_loss)
-    torch.save(model.att_proj.state_dict(),'./new_sb_model/'+args.dataset+'_'+args.task+'_att_proj.pt')
-    print('Model saved ! In '+'./new_sb_model/'+args.dataset+'_'+args.task+'_att_proj.pt')
-    torch.save(model.fwd_proj.state_dict(),'./new_sb_model/'+args.dataset+'_'+args.task+'_fwd_proj.pt')
-    print('Model saved ! In '+'./new_sb_model/'+args.dataset+'_'+args.task+'_fwd_proj.pt')
+    torch.save(model.att_proj.state_dict(),'./saved_model/'+args.dataset+'_'+args.task+'_att_proj.pt')
+    print('Model saved ! In '+'./saved_model/'+args.dataset+'_'+args.task+'_att_proj.pt')
+    torch.save(model.fwd_proj.state_dict(),'./saved_model/'+args.dataset+'_'+args.task+'_fwd_proj.pt')
+    print('Model saved ! In '+'./saved_model/'+args.dataset+'_'+args.task+'_fwd_proj.pt')
     return train_loss
         
-def test(model,loader,optimizer,device, args):
+def test(model,test_loader, train_loader,device):
     model.eval()
     correct_num = 0
-    for step, batch in enumerate(tqdm(loader)):
+    avg_emb = 0
+    for train_step, batch in enumerate(tqdm(train_loader)):
         data = batch[0].to(device)
         if data.shape[0]==1:
             continue
         classemb = batch[1].to(device)
         labels = batch[2].to(device)
-        logits = model(data,classemb)
+        gb, logits = model(data,classemb)
+        gb = torch.mean(gb,dim=0)
+        avg_emb = avg_emb+gb
+    avg_emb = avg_emb/train_step
+    torch.save(avg_emb,'./saved_model/'+args.dataset+'_'+args.task+'_avg_emb.pt')
+        
+
+
+    for step, batch in enumerate(tqdm(test_loader)):
+        data = batch[0].to(device)
+        if data.shape[0]==1:
+            continue
+        classemb = batch[1].to(device)
+        labels = batch[2].to(device)
+        gb, logits = model(data,classemb)
         for i,label in enumerate(labels):
             pred = torch.argmax(logits[i])
             if label==pred:
                 correct_num = correct_num+1
     print('correct_num',correct_num)
-    acc = correct_num/(len(loader)*5)
-    print('Total test sample', len(loader))
+    acc = correct_num/(len(test_loader)*5)
+    print('Total test sample', len(test_loader))
     print('Accuracy', acc)
 
 
@@ -289,15 +298,17 @@ def run(args):
     test_loader = DataLoader(test_dataset,batch_size=5)
     model = Att_Proj().to(device)
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    if not os.path.exists('./saved_model/'):
+        os.makedirs('./saved_model/')
     train(model,train_loader,optimizer,device, args)
-    test(model,test_loader,optimizer,device, args)
+    test(model,test_loader,train_loader,device)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, default="facebook/opt-350m")
     parser.add_argument("--model_base", type=str, default=None)
-    parser.add_argument("--device", type=int, default=1)
+    parser.add_argument("--device", type=int, default=0)
     parser.add_argument("--use_moe_gate", type=int, default=1)
     parser.add_argument("--data_saved_path", type=str, default="cache_data_minilm")
     parser.add_argument("--pretrained_embedding_type", type=str, default="sbert")
