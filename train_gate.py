@@ -7,13 +7,7 @@ import json
 from tqdm import tqdm
 import shortuuid
 import os.path as osp
-from graphllm.constants import GRAPH_TOKEN_INDEX, DEFAULT_GRAPH_TOKEN, DEFAULT_GRAPH_PAD_ID, DEFAULT_GRAPH_START_TOKEN, DEFAULT_GRAPH_END_TOKEN
-from graphllm.converstation import conv_templates, SeparatorStyle
-from graphllm.builder import load_pretrained_model
-from graphllm.utils import disable_torch_init, tokenizer_graph_token, get_model_name_from_path
-from graphllm.utils import classification_prompt, link_prediction_prompt
 from torch_geometric.utils import k_hop_subgraph, degree, remove_self_loops, add_self_loops
-from graphllm.llaga_gate_arch import GraphGate
 from torch_geometric.nn import MessagePassing
 import math
 import pandas as pd
@@ -431,7 +425,7 @@ from tqdm import tqdm
 
 def train(model,loader,optimizer,device, args):
     model.train()
-    avg_emb = torch.load('./new_sb_model/'+args.dataset+'_'+args.task+'_contrast_avg_emb.pt', map_location='cpu')
+    avg_emb = torch.load('./saved_model/'+args.dataset+'_'+args.task+'_avg_emb.pt', map_location='cpu')
     avg_emb = torch.unsqueeze(avg_emb,dim=0).to(device)
     for name, param in model.named_parameters():
         if "proj" in name:
@@ -450,9 +444,9 @@ def train(model,loader,optimizer,device, args):
         mask_graph_emb, aug_graph_emb = model(data)
         aug_loss = LA.matrix_norm(aug_graph_emb-avg_emb)
         mask_loss= 1/LA.matrix_norm(mask_graph_emb-avg_emb)
-        print('------------')
-        print('aug_loss',aug_loss)
-        print('mask_loss',mask_loss)
+        #print('------------')
+        # print('aug_loss',aug_loss)
+        # print('mask_loss',mask_loss)
 
         #targets = torch.nn.functional.one_hot(labels,num_classes=len(classemb[0])).to(torch.float32).to(device)
         #print(targets)
@@ -469,7 +463,6 @@ def train(model,loader,optimizer,device, args):
         # recon_loss = loss_mse(recon_logits,adjs)
         # #print('recon',recon_loss)
         # loss = loss+recon_loss
-        print('loss',loss)
         loss_accum += loss.item()
         loss.backward()
         optimizer.step()
@@ -518,18 +511,17 @@ def run(args):
     train_loader = DataLoader(train_dataset,batch_size=5)
     #test_loader = DataLoader(test_dataset,batch_size=5)
     model = Att_ProjwithGate().to(device)
-
-    att_proj_weights = torch.load('./new_sb_model/'+args.dataset+'_'+args.task+'_contrast_att_proj.pt', map_location='cpu')
+    if not os.path.exists('./saved_model/'+args.dataset):
+        os.makedirs('./saved_model/'+args.dataset)
+    att_proj_weights = torch.load('./saved_model/'+args.dataset+'_'+args.task+'_att_proj.pt', map_location='cpu')
     
     #att_proj_weights = get_w(att_proj_weights,keyword="att_proj")
     #print(att_proj_weights)
     model.att_proj.load_state_dict(att_proj_weights)
 
-    fwd_proj_weights = torch.load('./new_sb_model/'+args.dataset+'_'+args.task+'_contrast_fwd_proj.pt', map_location='cpu')
+    fwd_proj_weights = torch.load('./saved_model/'+args.dataset+'_'+args.task+'_fwd_proj.pt', map_location='cpu')
     #fwd_proj_weights = get_w(fwd_proj_weights,keyword="fwd_proj")
     model.fwd_proj.load_state_dict(fwd_proj_weights)
-    #print(model.proj.bias)
-    #exit(0)
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
     train(model,train_loader,optimizer,device, args)
     #test(model,test_loader,optimizer,device, args)
